@@ -986,6 +986,8 @@ jobs:
           PUSHED_TESTS: ${{ steps.commit_tests.outputs.pushed_tests }}
           PUSH_EXIT_CODE: ${{ steps.commit_tests.outputs.push_exit_code }}
           BOB_GENERATE_OUTCOME: ${{ steps.bob_generate.outcome }}
+          BACKEND_READY: ${{ steps.system_start.outputs.backend_ready }}
+          UI_READY: ${{ steps.system_start.outputs.ui_ready }}
           SCREENSHOT_COUNT: ${{ steps.proof.outputs.screenshot_count }}
           VIDEO_COUNT: ${{ steps.proof.outputs.video_count }}
           TRACE_COUNT: ${{ steps.proof.outputs.trace_count }}
@@ -1065,6 +1067,8 @@ jobs:
               'pushed_tests': os.environ.get('PUSHED_TESTS') or 'false',
               'push_exit_code': os.environ.get('PUSH_EXIT_CODE') or '0',
               'bob_generate_outcome': os.environ.get('BOB_GENERATE_OUTCOME') or 'unknown',
+              'backend_ready': os.environ.get('BACKEND_READY') or 'false',
+              'ui_ready': os.environ.get('UI_READY') or 'false',
               'coverage_summary': coverage_summary,
               'playwright_summary': playwright_summary,
           }
@@ -1113,6 +1117,8 @@ jobs:
           COVERAGE_SUMMARY: ${{ steps.stats.outputs.coverage_summary }}
           PLAYWRIGHT_SUMMARY: ${{ steps.stats.outputs.playwright_summary }}
           BOB_GENERATE_OUTCOME: ${{ steps.stats.outputs.bob_generate_outcome }}
+          BACKEND_READY: ${{ steps.stats.outputs.backend_ready }}
+          UI_READY: ${{ steps.stats.outputs.ui_ready }}
         run: |
           set -euo pipefail
 
@@ -1142,6 +1148,8 @@ jobs:
 
           | Area | Result |
           |---|---|
+          | Backend started (make run) | ${BACKEND_READY:-false} |
+          | UI started (Vite via UIManager) | ${UI_READY:-false} |
           | Bob generated tests | ${BOB_GENERATE_OUTCOME:-unknown} |
           | Generated tests committed locally | ${COMMITTED_TESTS:-false} |
           | Generated tests pushed to PR | ${PUSHED_TESTS:-false} |
@@ -1309,10 +1317,28 @@ jobs:
           INSTALL_EXIT: ${{ steps.install_deps.outputs.install_exit_code }}
           PROJECT_TEST_EXIT: ${{ steps.project_tests.outputs.project_tests_exit_code }}
           PLAYWRIGHT_EXIT: ${{ steps.playwright_tests.outputs.playwright_exit_code }}
+          BACKEND_READY: ${{ steps.system_start.outputs.backend_ready }}
         run: |
           set -euo pipefail
-          if [ "${INSTALL_EXIT:-0}" != "0" ] || [ "${PROJECT_TEST_EXIT:-0}" != "0" ] || [ "${PLAYWRIGHT_EXIT:-0}" != "0" ]; then
-            echo "One or more test stages failed. See the PR report and proof artifacts."
+          FAILED=false
+          if [ "${INSTALL_EXIT:-0}" != "0" ]; then
+            echo "Node dependency installation failed (exit ${INSTALL_EXIT})."
+            FAILED=true
+          fi
+          if [ "${PROJECT_TEST_EXIT:-0}" != "0" ]; then
+            echo "Project tests failed (exit ${PROJECT_TEST_EXIT})."
+            FAILED=true
+          fi
+          if [ "${PLAYWRIGHT_EXIT:-0}" != "0" ]; then
+            echo "Playwright tests failed (exit ${PLAYWRIGHT_EXIT})."
+            FAILED=true
+          fi
+          if [ "${BACKEND_READY:-false}" = "false" ]; then
+            echo "Backend did not start successfully — inspect logs/make-run.log in the artifact bundle."
+            FAILED=true
+          fi
+          if [ "${FAILED}" = "true" ]; then
+            echo "One or more stages failed. See the PR report and proof artifacts."
             exit 1
           fi
-          echo "All configured test stages passed."
+          echo "All configured stages passed."
