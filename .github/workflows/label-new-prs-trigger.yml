@@ -62,7 +62,7 @@ jobs:
           
           jq -n \
             --arg pr_number "${{ github.event.pull_request.number }}" \
-            --arg pr_title "${{ github.event.pull_request.title }}" \
+            --arg pr_title "${PR_TITLE}" \
             --arg pr_author "${{ github.event.pull_request.user.login }}" \
             --arg pr_body "${PR_BODY_ESCAPED}" \
             --arg head_ref "${{ github.event.pull_request.head.ref }}" \
