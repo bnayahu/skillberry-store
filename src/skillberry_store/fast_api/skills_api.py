@@ -8,6 +8,11 @@ from typing import Optional, Annotated, List
 from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Form
 from fastapi.responses import Response
 from prometheus_client import Counter
+from skillberry_store.plugins.events import (
+    emit_content_added,
+    emit_content_updated,
+    emit_content_deleted,
+)
 
 from skillberry_store.tools.anthropic.importer import import_from_anthropic_skill
 from skillberry_store.modules.object_handler import get_object_handler
@@ -106,7 +111,7 @@ def register_skills_api(
         return skill_dict
 
     @app.post("/skills/", tags=[tags], openapi_extra={"x-cli-name": "create-skill"})
-    def create_skill(skill: Annotated[SkillSchema, Query()]):
+    async def create_skill(skill: Annotated[SkillSchema, Query()]):
         """Create a new skill.
 
         The form fields are dynamically generated from SkillSchema.
@@ -166,6 +171,10 @@ def register_skills_api(
             logger.info(
                 f"Skill '{skill.name}' (UUID: {skill.uuid}) created successfully"
             )
+
+            # Emit event for plugin hooks
+            await emit_content_added("skill", skill.uuid)
+
             return {
                 "message": f"Skill '{skill.name}' created successfully.",
                 "name": skill.name,
@@ -248,7 +257,7 @@ def register_skills_api(
         tags=[tags],
         openapi_extra={"x-cli-name": "delete-skill"},
     )
-    def delete_skill(uuid_or_name: str):
+    async def delete_skill(uuid_or_name: str):
         """Delete a skill by UUID or name.
 
         Args:
@@ -302,6 +311,10 @@ def register_skills_api(
             logger.info(
                 f"Skill with UUID or name '{uuid_or_name}' deleted successfully"
             )
+
+            # Emit event for plugin hooks
+            await emit_content_deleted("skill", skill_uuid)
+
             return {
                 "message": f"Skill with UUID or name '{uuid_or_name}' deleted successfully."
             }
@@ -319,7 +332,7 @@ def register_skills_api(
         tags=[tags],
         openapi_extra={"x-cli-name": "update-skill"},
     )
-    def update_skill(uuid_or_name: str, skill: SkillSchema):
+    async def update_skill(uuid_or_name: str, skill: SkillSchema):
         """Update an existing skill by UUID or name.
 
         Args:
@@ -386,6 +399,10 @@ def register_skills_api(
             logger.info(
                 f"Skill with UUID or name '{uuid_or_name}' (UUID: {skill_uuid}) updated successfully"
             )
+
+            # Emit event for plugin hooks
+            await emit_content_updated("skill", skill_uuid)
+
             return {
                 "message": f"Skill with UUID or name '{uuid_or_name}' updated successfully."
             }
@@ -875,7 +892,7 @@ def register_skills_api(
 
             # Create new skill
             logger.info(f"Creating new skill '{skill_name}'...")
-            result = create_skill(skill_schema)
+            result = await create_skill(skill_schema)
             skill_uuid = result.get("uuid")
             action = "created"
 

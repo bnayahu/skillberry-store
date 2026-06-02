@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "skillberry-plugin-creator"
+version = "0.1.0"
+description = "Skillberry Store plugin for creating snippets using LLM"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "llm-switchboard[litellm]>=0.1.0",
+]
+
+[project.entry-points."skillberry_store.plugins"]
+creator = "skillberry_plugin_creator.plugin:SkillberryPluginCreator"
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+]
+
+[tool.setuptools]
+packages = ["skillberry_plugin_creator"]
+package-dir = {"" = "src"}

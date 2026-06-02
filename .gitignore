@@ -3,9 +3,11 @@
 **.claude
 
 .idea/
+.bob/
 
 # Superpowers brainstorming / spec docs
 docs/superpowers/
+docs/plans/
 .superpowers/
 
 # Byte-compiled / optimized / DLL files
