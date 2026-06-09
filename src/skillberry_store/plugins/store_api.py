@@ -99,6 +99,11 @@ class StoreAPI:
             logger.error(f"Failed to update tool tags for {uuid}: {e}")
             return False
 
+    def create_tool(self, data: Dict[str, Any], module_content: bytes, module_filename: str) -> Dict[str, Any]:
+        if not self.tools_service:
+            raise RuntimeError("Tools service not available")
+        return self.tools_service.create(data, module_content, module_filename)
+
     def update_tool_metadata(self, uuid: str, metadata: Dict[str, Any]) -> bool:
         if not self.tools_service:
             return False
@@ -129,6 +134,11 @@ class StoreAPI:
             return False
 
     # ── Skills ─────────────────────────────────────────────────────────────
+
+    def create_skill(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        if not self.skills_service:
+            raise RuntimeError("Skills service not available")
+        return self.skills_service.create(data)
 
     def get_skill(self, uuid: str) -> Optional[Dict[str, Any]]:
         if not self.skills_service:
