@@ -1,7 +1,7 @@
 // Copyright 2025 IBM Corp.
 // Licensed under the Apache License, Version 2.0
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
   Modal,
   ModalVariant,
@@ -27,7 +27,7 @@ interface PluginActionFormProps {
 
 export function PluginActionForm({
   action,
-  pluginName: _pluginName,
+  pluginName,
   isOpen,
   onClose,
   onSubmit,
@@ -36,6 +36,10 @@ export function PluginActionForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<PluginActionResult | null>(null);
+  const [isPolling, setIsPolling] = useState(false);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pollErrorCountRef = useRef(0);
 
   const handleSubmit = async () => {
     setIsSubmitting(true);
@@ -73,11 +77,70 @@ export function PluginActionForm({
   };
 
   const handleClose = () => {
+    if (pollIntervalRef.current !== null) clearInterval(pollIntervalRef.current);
+    if (pollTimeoutRef.current !== null) clearTimeout(pollTimeoutRef.current);
+    pollIntervalRef.current = null;
+    pollTimeoutRef.current = null;
+    setIsPolling(false);
     setFormData({});
     setError(null);
     setResult(null);
     onClose();
   };
+
+  useEffect(() => {
+    const jobId = result?.data?.job_id;
+    const pendingStatus = result?.data?.status;
+    if (!jobId || pendingStatus !== 'pending') return;
+
+    let stopped = false;
+    setIsPolling(true);
+    pollErrorCountRef.current = 0;
+
+    const stop = (nextResult?: PluginActionResult) => {
+      if (stopped) return;
+      stopped = true;
+      clearInterval(pollIntervalRef.current!);
+      clearTimeout(pollTimeoutRef.current!);
+      pollIntervalRef.current = null;
+      pollTimeoutRef.current = null;
+      setIsPolling(false);
+      if (nextResult !== undefined) setResult(nextResult);
+    };
+
+    pollTimeoutRef.current = setTimeout(
+      () => stop({ success: false, message: 'Could not confirm simulation status — check the plugin logs' }),
+      180_000
+    );
+
+    pollIntervalRef.current = setInterval(async () => {
+      if (stopped) return;
+      try {
+        const resp = await fetch(`/api/plugins/${pluginName}/status/${jobId}`);
+        if (stopped) return;
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const statusData = await resp.json();
+        pollErrorCountRef.current = 0;
+        if (statusData.status === 'ready') {
+          stop({ success: true, message: 'Simulation is ready', data: statusData });
+        } else if (statusData.status === 'failed') {
+          stop({
+            success: false,
+            message: 'Simulation failed',
+            error: statusData.detail ?? 'Unknown error',
+          });
+        }
+      } catch {
+        if (stopped) return;
+        pollErrorCountRef.current += 1;
+        if (pollErrorCountRef.current >= 3) {
+          stop({ success: false, message: 'Could not confirm simulation status — check the plugin logs' });
+        }
+      }
+    }, 2000);
+
+    return () => { stop(); };
+  }, [result?.data?.job_id, result?.data?.status, pluginName]);
 
   const renderField = (propertyName: string, propertySchema: any) => {
     const isRequired = action.params_schema.required?.includes(propertyName);
@@ -200,11 +263,11 @@ export function PluginActionForm({
         <Button
           key="submit"
           variant="primary"
-          onClick={handleSubmit}
-          isLoading={isSubmitting}
-          isDisabled={isSubmitting}
+          onClick={result?.success ? handleClose : handleSubmit}
+          isLoading={isSubmitting || isPolling}
+          isDisabled={isSubmitting || isPolling}
         >
-          Execute
+          {isSubmitting || isPolling ? 'Starting simulation…' : result?.success ? 'Done' : 'Execute'}
         </Button>,
         <Button key="cancel" variant="link" onClick={handleClose}>
           Cancel
@@ -217,13 +280,19 @@ export function PluginActionForm({
         </Alert>
       )}
 
-      {result && result.success && (
+      {isPolling && result?.data?.job_id && (
+        <Alert variant="info" title="Simulation is starting…" isInline style={{ marginBottom: '1rem' }}>
+          Job {result.data.job_id} — checking status…
+        </Alert>
+      )}
+
+      {result && result.success && !isPolling && (
         <Alert variant="success" title="Success" isInline style={{ marginBottom: '1rem' }}>
           {result.message || 'Action completed successfully'}
         </Alert>
       )}
 
-      {result?.data != null && (
+      {result?.data != null && !isPolling && (
         <pre style={{
           marginBottom: '1rem',
           maxHeight: '20rem',
@@ -238,10 +307,14 @@ export function PluginActionForm({
         </pre>
       )}
 
-      {result && !result.success && (
-        <Alert variant="warning" title="Action completed with issues" isInline style={{ marginBottom: '1rem' }}>
-          {result.message || result.error || 'Action completed but may have issues'}
+      {result && !result.success && result.error && (
+        <Alert variant="danger" title={result.message || 'Action failed'} isInline style={{ marginBottom: '1rem' }}>
+          {result.error}
         </Alert>
+      )}
+
+      {result && !result.success && !result.error && (
+        <Alert variant="warning" title={result.message || 'Action completed with issues'} isInline style={{ marginBottom: '1rem' }} />
       )}
 
       <Form>
