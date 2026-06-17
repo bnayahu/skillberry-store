@@ -15,6 +15,7 @@ def test_plugin_router_exists():
     assert router is not None
     paths = {r.path for r in router.routes}
     assert "/simulate" in paths
+    assert "/status/{job_id}" in paths
     assert "/toggle" in paths
     assert "/teardown" in paths
     assert "/active/{skill_uuid}" in paths

@@ -26,3 +26,15 @@ def test_is_configured_requires_key(monkeypatch):
     assert SimulateConfig.from_env().is_configured() is False
     monkeypatch.setenv("SIMULATE_LLM_API_KEY", "sk-x")
     assert SimulateConfig.from_env().is_configured() is True
+
+
+def test_ready_timeout_read_from_env(monkeypatch):
+    monkeypatch.setenv("SIMULATE_READY_TIMEOUT_SECONDS", "600")
+    cfg = SimulateConfig.from_env()
+    assert cfg.ready_timeout_seconds == 600
+
+
+def test_ready_timeout_default_is_large_enough(monkeypatch):
+    monkeypatch.delenv("SIMULATE_READY_TIMEOUT_SECONDS", raising=False)
+    cfg = SimulateConfig.from_env()
+    assert cfg.ready_timeout_seconds >= 300
