@@ -138,6 +138,7 @@ dependencies = [
   "shenanigaNFS @ git+https://github.com/JordanMilne/ShenanigaNFS.git",
   "skillberry-plugin-dedupe>=0.1.0",
   "skillberry-plugin-kagenti-approver>=0.1.0",
+  "skillberry-plugin-simulate>=0.1.0",
 ]
 
 [project.optional-dependencies]
