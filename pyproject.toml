@@ -189,6 +189,8 @@ plugin-skill-optimizer = [
 
 plugin-provenance = [
   "skillberry-plugin-provenance>=0.1.0",
+]
+
 plugin-simulate = [
   "skillberry-plugin-simulate>=0.1.0",
 ]
