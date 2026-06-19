@@ -138,6 +138,7 @@ dependencies = [
   "shenanigaNFS @ git+https://github.com/JordanMilne/ShenanigaNFS.git",
   "skillberry-plugin-dedupe>=0.1.0",
   "skillberry-plugin-kagenti-approver>=0.1.0",
+  "skillberry-plugin-simulate>=0.1.0",
 ]
 
 [project.optional-dependencies]
@@ -188,6 +189,8 @@ plugin-skill-optimizer = [
 
 plugin-provenance = [
   "skillberry-plugin-provenance>=0.1.0",
+plugin-simulate = [
+  "skillberry-plugin-simulate>=0.1.0",
 ]
 
 # Install all plugins
@@ -202,6 +205,7 @@ plugins-all = [
   "skillberry-plugin-sast>=0.1.0",
   "skillberry-plugin-skill-optimizer>=0.1.0",
   "skillberry-plugin-provenance>=0.1.0",
+  "skillberry-plugin-simulate>=0.1.0",
 ]
 
 test = [
@@ -220,6 +224,7 @@ skillberry-plugin-kagenti-approver = { path = "plugins/skillberry-plugin-kagenti
 skillberry-plugin-sast = { path = "plugins/skillberry-plugin-sast", editable = true }
 skillberry-plugin-skill-optimizer = { path = "plugins/skillberry-plugin-skill-optimizer", editable = true }
 skillberry-plugin-provenance = { path = "plugins/skillberry-plugin-provenance", editable = true }
+skillberry-plugin-simulate = { path = "plugins/skillberry-plugin-simulate", editable = true }
 llm-client = { path = "skillberry-common/packages/llm-client", editable = true }
 torch = { index = "pytorch-cpu" }
 

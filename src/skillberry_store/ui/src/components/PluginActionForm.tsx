@@ -1,7 +1,7 @@
 // Copyright 2025 IBM Corp.
 // Licensed under the Apache License, Version 2.0
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
   Modal,
   ModalVariant,
@@ -27,7 +27,7 @@ interface PluginActionFormProps {
 
 export function PluginActionForm({
   action,
-  pluginName: _pluginName,
+  pluginName,
   isOpen,
   onClose,
   onSubmit,
@@ -36,6 +36,57 @@ export function PluginActionForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<PluginActionResult | null>(null);
+  const [isPolling, setIsPolling] = useState(false);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pollErrorCountRef = useRef(0);
+
+  // Dynamic dropdown state: field name → [{label, value}]
+  const [dynamicOptions, setDynamicOptions] = useState<Record<string, { label: string; value: string }[]>>({});
+  const [optionsLoading, setOptionsLoading] = useState<Record<string, boolean>>({});
+
+  const extractItems = (data: unknown): unknown[] => {
+    if (Array.isArray(data)) return data;
+    if (data && typeof data === 'object') {
+      const vals = Object.values(data as object);
+      if (vals.length === 1) {
+        const v = vals[0];
+        if (Array.isArray(v)) return v;
+        if (v && typeof v === 'object') return Object.values(v as object);
+      }
+    }
+    return [];
+  };
+
+  const interpolateUrl = (template: string, data: Record<string, any>) =>
+    template.replace(/\{(\w+)\}/g, (_, key) => encodeURIComponent(data[key] ?? ''));
+
+  const fetchOptions = async (propertyName: string, schema: any, currentFormData: Record<string, any>) => {
+    const url = interpolateUrl(schema['x-options-from'], currentFormData);
+    const labelKey: string = schema['x-option-label'] ?? 'label';
+    const valueKey: string = schema['x-option-value'] ?? 'value';
+    const excludeTags: string[] = schema['x-exclude-tags'] ?? [];
+    setOptionsLoading((prev) => ({ ...prev, [propertyName]: true }));
+    try {
+      const resp = await fetch(url);
+      if (!resp.ok) {
+        console.warn(`PluginActionForm: failed to fetch options for ${propertyName}: HTTP ${resp.status}`);
+        return;
+      }
+      const raw = await resp.json();
+      const items = extractItems(raw) as any[];
+      const filtered = items.filter(
+        (item) => !excludeTags.some((tag) => (item.tags ?? []).includes(tag))
+      );
+      const options = filtered.map((item) => ({ label: item[labelKey], value: item[valueKey] }));
+      setDynamicOptions((prev) => ({ ...prev, [propertyName]: options }));
+      if (options.length === 1) {
+        setFormData((prev) => ({ ...prev, [propertyName]: options[0].value }));
+      }
+    } finally {
+      setOptionsLoading((prev) => ({ ...prev, [propertyName]: false }));
+    }
+  };
 
   const handleSubmit = async () => {
     setIsSubmitting(true);
@@ -73,11 +124,102 @@ export function PluginActionForm({
   };
 
   const handleClose = () => {
+    if (pollIntervalRef.current !== null) clearInterval(pollIntervalRef.current);
+    if (pollTimeoutRef.current !== null) clearTimeout(pollTimeoutRef.current);
+    pollIntervalRef.current = null;
+    pollTimeoutRef.current = null;
+    setIsPolling(false);
     setFormData({});
     setError(null);
     setResult(null);
     onClose();
   };
+
+  useEffect(() => {
+    const jobId = result?.data?.job_id;
+    const pendingStatus = result?.data?.status;
+    if (!jobId || pendingStatus !== 'pending') return;
+
+    let stopped = false;
+    setIsPolling(true);
+    pollErrorCountRef.current = 0;
+
+    const stop = (nextResult?: PluginActionResult) => {
+      if (stopped) return;
+      stopped = true;
+      clearInterval(pollIntervalRef.current!);
+      clearTimeout(pollTimeoutRef.current!);
+      pollIntervalRef.current = null;
+      pollTimeoutRef.current = null;
+      setIsPolling(false);
+      if (nextResult !== undefined) setResult(nextResult);
+    };
+
+    pollTimeoutRef.current = setTimeout(
+      () => stop({ success: false, message: 'Could not confirm simulation status — check the plugin logs' }),
+      180_000
+    );
+
+    pollIntervalRef.current = setInterval(async () => {
+      if (stopped) return;
+      try {
+        const resp = await fetch(`/api/plugins/${pluginName}/status/${jobId}`);
+        if (stopped) return;
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const statusData = await resp.json();
+        pollErrorCountRef.current = 0;
+        if (statusData.status === 'ready') {
+          stop({ success: true, message: 'Simulation is ready', data: statusData });
+        } else if (statusData.status === 'failed') {
+          stop({
+            success: false,
+            message: 'Simulation failed',
+            error: statusData.detail ?? 'Unknown error',
+          });
+        }
+      } catch {
+        if (stopped) return;
+        pollErrorCountRef.current += 1;
+        if (pollErrorCountRef.current >= 3) {
+          stop({ success: false, message: 'Could not confirm simulation status — check the plugin logs' });
+        }
+      }
+    }, 2000);
+
+    return () => { stop(); };
+  }, [result?.data?.job_id, result?.data?.status, pluginName]);
+
+  // Fetch options for non-dependent fields on open
+  useEffect(() => {
+    if (!isOpen || !action.params_schema.properties) return;
+    for (const [name, schema] of Object.entries(action.params_schema.properties) as [string, any][]) {
+      if (schema['x-options-from'] && !schema['x-depends-on']) {
+        fetchOptions(name, schema, formData);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
+  // Refetch dependent dropdowns when their parent value changes
+  useEffect(() => {
+    if (!action.params_schema.properties) return;
+    for (const [name, schema] of Object.entries(action.params_schema.properties) as [string, any][]) {
+      const parentField = schema['x-depends-on'];
+      if (schema['x-options-from'] && parentField) {
+        if (formData[parentField]) {
+          fetchOptions(name, schema, formData);
+        } else {
+          // Clear dependent field and its options when parent is cleared
+          setDynamicOptions((prev) => ({ ...prev, [name]: [] }));
+          setFormData((prev) => { const next = { ...prev }; delete next[name]; return next; });
+        }
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [Object.entries(action.params_schema.properties ?? {})
+      .filter(([, s]: [string, any]) => s['x-depends-on'])
+      .map(([, s]: [string, any]) => formData[s['x-depends-on']])
+      .join(',')]);
 
   const renderField = (propertyName: string, propertySchema: any) => {
     const isRequired = action.params_schema.required?.includes(propertyName);
@@ -162,6 +304,39 @@ export function PluginActionForm({
       );
     }
 
+    // Dynamic dropdown (x-options-from)
+    if (propertySchema['x-options-from']) {
+      const parentField = propertySchema['x-depends-on'];
+      const isDisabled = !!parentField && !formData[parentField];
+      const options = dynamicOptions[propertyName] ?? [];
+      const loading = optionsLoading[propertyName] ?? false;
+      const title: string = propertySchema.title ?? propertyName;
+      return (
+        <FormGroup
+          key={propertyName}
+          label={title}
+          isRequired={isRequired}
+          fieldId={propertyName}
+        >
+          <FormSelect
+            id={propertyName}
+            value={(value as string) || ''}
+            onChange={(_event, newValue) => handleChange(newValue)}
+            isDisabled={isDisabled || loading}
+          >
+            <FormSelectOption
+              value=""
+              label={loading ? 'Loading…' : isDisabled ? `Select a ${parentField} first` : `Select ${title.toLowerCase()}`}
+              isDisabled
+            />
+            {options.map((opt) => (
+              <FormSelectOption key={opt.value} value={opt.value} label={opt.label} />
+            ))}
+          </FormSelect>
+        </FormGroup>
+      );
+    }
+
     // Default to text input
     const isArray = propertySchema.type === 'array';
     const description = isArray
@@ -200,11 +375,11 @@ export function PluginActionForm({
         <Button
           key="submit"
           variant="primary"
-          onClick={handleSubmit}
-          isLoading={isSubmitting}
-          isDisabled={isSubmitting}
+          onClick={result?.success ? handleClose : handleSubmit}
+          isLoading={isSubmitting || isPolling}
+          isDisabled={isSubmitting || isPolling}
         >
-          Execute
+          {isSubmitting || isPolling ? 'Working…' : result?.success ? 'Done' : 'Execute'}
         </Button>,
         <Button key="cancel" variant="link" onClick={handleClose}>
           Cancel
@@ -217,13 +392,19 @@ export function PluginActionForm({
         </Alert>
       )}
 
-      {result && result.success && (
+      {isPolling && result?.data?.job_id && (
+        <Alert variant="info" title="Simulation is starting…" isInline style={{ marginBottom: '1rem' }}>
+          Job {result.data.job_id} — checking status…
+        </Alert>
+      )}
+
+      {result && result.success && !isPolling && (
         <Alert variant="success" title="Success" isInline style={{ marginBottom: '1rem' }}>
           {result.message || 'Action completed successfully'}
         </Alert>
       )}
 
-      {result?.data != null && (
+      {result?.data != null && !isPolling && (
         <pre style={{
           marginBottom: '1rem',
           maxHeight: '20rem',
@@ -238,10 +419,14 @@ export function PluginActionForm({
         </pre>
       )}
 
-      {result && !result.success && (
-        <Alert variant="warning" title="Action completed with issues" isInline style={{ marginBottom: '1rem' }}>
-          {result.message || result.error || 'Action completed but may have issues'}
+      {result && !result.success && result.error && (
+        <Alert variant="danger" title={result.message || 'Action failed'} isInline style={{ marginBottom: '1rem' }}>
+          {result.error}
         </Alert>
+      )}
+
+      {result && !result.success && !result.error && (
+        <Alert variant="warning" title={result.message || 'Action completed with issues'} isInline style={{ marginBottom: '1rem' }} />
       )}
 
       <Form>
