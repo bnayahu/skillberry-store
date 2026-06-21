@@ -1,6 +1,6 @@
 import pytest
 
-from skillberry_store.modules.file_executor import FileExecutor, arg_convert
+from skillberry_store.modules.file_executor import FileExecutor, mcp_arg_convert
 
 
 @pytest.mark.parametrize(
@@ -26,10 +26,10 @@ from skillberry_store.modules.file_executor import FileExecutor, arg_convert
         ({"k": "v"}, "object", {"k": "v"}),
     ],
 )
-def test_arg_convert_produces_json_native_values(value, arg_type, expected):
-    """arg_convert builds MCP call arguments, so it must return JSON-native
+def test_mcp_arg_convert_produces_json_native_values(value, arg_type, expected):
+    """mcp_arg_convert builds MCP call arguments, so it must return JSON-native
     values (no source-code quoting, no guess-coercion across types)."""
-    result = arg_convert(value, arg_type)
+    result = mcp_arg_convert(value, arg_type)
     assert result == expected
     assert type(result) is type(expected)
 

@@ -42,7 +42,7 @@ def get_distribution(module_name: str) -> str:
     )
 
 
-def arg_convert(arg_name, arg_type):
+def mcp_arg_convert(arg_name, arg_type):
     """Coerce a parameter value to the JSON-native type declared in the tool schema.
 
     This is used to build the ``arguments`` dict for an MCP ``call_tool`` request,
@@ -407,7 +407,7 @@ class FileExecutor:
                         else:
                             continue
 
-                    converted_arg = arg_convert(
+                    converted_arg = mcp_arg_convert(
                         parameters.get(parameter_definition_name),
                         parameter_definition_type,
                     )
