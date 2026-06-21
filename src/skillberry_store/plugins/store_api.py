@@ -214,6 +214,8 @@ class StoreAPI:
         try:
             self.skills_service.delete(uuid_or_name)
             return True
+        except KeyError:
+            return False
         except Exception as e:
             logger.error(f"Failed to delete skill {uuid_or_name}: {e}")
             return False
