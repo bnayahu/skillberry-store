@@ -179,6 +179,16 @@ class SkillberryPluginSimulate(PluginBase):
                         },
                         "required": ["skill_uuid"],
                     },
+                    "async_action": {
+                        "status_endpoint": "/api/plugins/simulate/status/{job_id}",
+                        "labels": {
+                            "pending": "Simulation is starting…",
+                            "ready": "Simulation is ready",
+                            "failed": "Simulation failed",
+                            "timeout": "Could not confirm simulation status — check the plugin logs",
+                            "done": "Done",
+                        },
+                    },
                 },
                 {
                     "label": "Toggle real/sim",
