@@ -16,6 +16,7 @@ from typing import Any, Dict, Literal, Optional
 
 from skillberry_store.plugins.base import PluginBase, PluginMetadata, PluginType
 from skillberry_plugin_skill_optimizer.prompt import (
+    DEFAULT_OPTIMIZATION_GOAL,
     REQUIRED_OUTPUTS_FILENAME,
     REQUIRED_OUTPUTS_TEMPLATE,
     build_runspace_prompt,
@@ -342,6 +343,7 @@ class SkillberryPluginSkillOptimizer(PluginBase):
         agent_env: Optional[Dict[str, str]] = None,
         execution_mode: Optional[str] = None,
         max_turns: Optional[int] = None,
+        optimization_goal: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Optimize an existing skill and import the result as a new skill."""
         if not self._runspace_available:
@@ -441,6 +443,7 @@ class SkillberryPluginSkillOptimizer(PluginBase):
                 has_metadata=include_metadata,
                 has_trajectories=bool(trajectories_dir),
                 has_additional_context=bool(additional_context_dir),
+                optimization_goal=optimization_goal,
             )
 
             try:
@@ -525,10 +528,33 @@ class SkillberryPluginSkillOptimizer(PluginBase):
                     except Exception as e:
                         logger.error(f"Failed to create snippet '{snippet.name}': {e}", exc_info=True)
 
+                # Compute the actual structural diff from the import results.
+                # Claude's self-reported tools_added/removed/snippets_added/removed in
+                # required_outputs.json is often incomplete — override with ground truth.
+                original_tool_names = {t["name"] for t in tools}
+                imported_tool_names = {t.name for t in imported_tools}
+                original_snippet_names = {s["name"] for s in snippets}
+                imported_snippet_names = {s.name for s in imported_snippets}
+                opt_metadata["tools_removed"] = sorted(original_tool_names - imported_tool_names)
+                opt_metadata["tools_added"] = sorted(imported_tool_names - original_tool_names)
+                opt_metadata["snippets_removed"] = sorted(original_snippet_names - imported_snippet_names)
+                opt_metadata["snippets_added"] = sorted(imported_snippet_names - original_snippet_names)
+                logger.info(
+                    f"Diff — tools added: {opt_metadata['tools_added']}, "
+                    f"removed: {opt_metadata['tools_removed']}; "
+                    f"snippets added: {opt_metadata['snippets_added']}, "
+                    f"removed: {opt_metadata['snippets_removed']}"
+                )
+
                 inherited_tags = [t for t in skill.get("tags", []) if t]
+                # opt_metadata["skill_description"] is the authoritative source — it's what
+                # the optimizer agent explicitly wrote in required_outputs.json. The importer's
+                # skill_description may be empty or a generic placeholder when YAML parsing of
+                # SKILL.md frontmatter fails (e.g. colon-containing plain scalars).
+                effective_description = opt_metadata.get("skill_description") or skill_description or ""
                 skill_data = {
                     "name": final_name,
-                    "description": skill_description,
+                    "description": effective_description,
                     "tool_uuids": tool_uuids,
                     "snippet_uuids": snippet_uuids,
                     "tags": list({"optimized"} | set(inherited_tags)),
@@ -563,7 +589,7 @@ class SkillberryPluginSkillOptimizer(PluginBase):
         """Register plugin API routes."""
         from fastapi import APIRouter, HTTPException
         from pydantic import BaseModel
-        from typing import List, Optional
+        from typing import Optional
 
         router = APIRouter()
 
@@ -576,6 +602,7 @@ class SkillberryPluginSkillOptimizer(PluginBase):
             agent_env: Optional[Dict[str, str]] = None
             execution_mode: Optional[str] = None
             max_turns: Optional[int] = None
+            optimization_goal: Optional[str] = None
 
         @router.post("/optimize-skill")
         async def optimize_skill_endpoint(request: OptimizeSkillRequest):
@@ -593,6 +620,7 @@ class SkillberryPluginSkillOptimizer(PluginBase):
                     agent_env=request.agent_env,
                     execution_mode=request.execution_mode,
                     max_turns=request.max_turns,
+                    optimization_goal=request.optimization_goal,
                 )
                 return {
                     "success": True,
@@ -634,6 +662,11 @@ class SkillberryPluginSkillOptimizer(PluginBase):
                             "output_skill_name": {
                                 "type": "string",
                                 "description": "Name for the optimized skill (auto-generated if not set)",
+                            },
+                            "optimization_goal": {
+                                "type": "string",
+                                "default": DEFAULT_OPTIMIZATION_GOAL,
+                                "description": "Free text description of the optimization goal",
                             },
                             "include_metadata": {
                                 "type": "boolean",

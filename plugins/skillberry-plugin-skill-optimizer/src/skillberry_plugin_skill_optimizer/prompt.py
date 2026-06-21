@@ -7,6 +7,13 @@ from typing import Any, Dict
 
 REQUIRED_OUTPUTS_FILENAME = "required_outputs.json"
 
+DEFAULT_OPTIMIZATION_GOAL = (
+    "Optimize this skill for correctness, robustness, consistency, and no hallucinations. "
+    "Improve instruction following, edge-case handling, and calibrated uncertainty without "
+    "changing the intended functionality. Use any provided trajectories as ground truth, "
+    "but do not overfit to them."
+)
+
 REQUIRED_OUTPUTS_TEMPLATE: Dict[str, Any] = {
     "skill_name": "",
     "skill_description": "",
@@ -27,8 +34,11 @@ def build_runspace_prompt(
     has_metadata: bool = False,
     has_trajectories: bool = False,
     has_additional_context: bool = False,
+    optimization_goal: str | None = None,
 ) -> str:
     """Build the optimization prompt for RunspaceAgent."""
+    if optimization_goal is None:
+        optimization_goal = DEFAULT_OPTIMIZATION_GOAL
     # context/knowledge/ is always present — it's bundled with the optimizer
     inventory_lines = [
         "- context/knowledge/ — READ ALL FILES BEFORE MAKING ANY CHANGES:\n"
@@ -90,6 +100,9 @@ You are optimizing a Skillberry skill. The editable directory IS the current ski
 exported from the Skillberry Store in Anthropic format. Your job: improve it, then
 leave it importable back into the store.
 
+OPTIMIZATION GOAL:
+{optimization_goal}
+
 CONTEXT LAYOUT:
 {inventory}
 
@@ -121,18 +134,23 @@ PYTHON FILE FORMAT RULES:
 - Runtime helpers are INJECTED into execution scope — call them directly,
   do NOT import them.
 
-PRESERVE STRUCTURE:
-- Do NOT rename, move, or delete existing files.
-- Keep the output directory structure the same as the input.
-- Do NOT leave temporary files in the directory — they will be imported.
-- Keep SKILL.md frontmatter valid at all times.
+FILE & DIRECTORY RULES:
+- SKILL.md must remain at the top level of the editable directory — never move it.
+- Do NOT rename the editable directory itself.
+- Do NOT leave temporary or scratch files — every file present will be imported.
+- Everything else is fair game: rename files, move files between directories, create
+  or remove subdirectories, add new files, delete files — as long as the result is
+  correct and store-compatible:
+    * Python files must remain self-contained (no cross-file imports introduced).
+    * All `def` functions you want as tools must still be top-level in their file.
+    * Non-Python files you want as snippets must still be reachable (not lost in an
+      ignored location).
+    * SKILL.md frontmatter must remain valid at all times.
 
 SKILL NAME:
 - If you made meaningful changes, update SKILL.md `name` to a new kebab-case
   name (max 64 characters) that hints at what changed.
 - Put the SAME value in `skill_name` in required_outputs.json.
-- IMPORTANT: only change the NAME VALUE inside SKILL.md — do NOT create
-  subdirectories, do NOT move SKILL.md, do NOT rename the editable directory.
 
 === REQUIRED OUTPUT CONTRACT ===
 The editable directory contains a file named `{REQUIRED_OUTPUTS_FILENAME}`. You MUST
@@ -146,9 +164,22 @@ Field meanings:
 - skill_description: the skill description from SKILL.md frontmatter.
 - optimization_rationale: a concise explanation of what you changed and why.
 - issues_addressed: list of the failure modes / issues you fixed.
-- tools_added / tools_modified / tools_removed: function names added, changed, removed.
-- snippets_added / snippets_modified / snippets_removed: non-code files changed.
+- tools_added: exact function names (`def` names) of NEW functions you added that did
+  not exist before. Empty list if none.
+- tools_modified: exact function names you changed in place. Empty list if none.
+- tools_removed: exact function names you deleted from any .py file. Empty list if
+  none. THIS MUST BE ACCURATE — if you removed a `def`, list its name here.
+- snippets_added: filenames (relative paths) of NEW non-Python files you created.
+  Empty list if none.
+- snippets_modified: filenames of existing non-Python files whose content you changed.
+  Empty list if none.
+- snippets_removed: filenames (relative paths) of non-Python files you deleted. Empty
+  list if none. THIS MUST BE ACCURATE — if you deleted a file, list it here.
 - ready_for_deployment: true if the skill is valid and ready to upload.
+
+ACCURACY REQUIREMENT: fill tools_removed and snippets_removed as you go — do NOT
+leave them empty if you actually deleted functions or files. The store uses these
+fields to audit what changed; wrong values mislead operators.
 
 `{REQUIRED_OUTPUTS_FILENAME}` is a temporary contract file — the optimizer removes it
 before importing the skill back into the store.

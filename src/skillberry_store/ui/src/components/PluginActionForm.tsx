@@ -72,10 +72,7 @@ export function PluginActionForm({
     setOptionsLoading((prev) => ({ ...prev, [propertyName]: true }));
     try {
       const resp = await fetch(url);
-      if (!resp.ok) {
-        console.warn(`PluginActionForm: failed to fetch options for ${propertyName}: HTTP ${resp.status}`);
-        return;
-      }
+      if (!resp.ok) return;
       const raw = await resp.json();
       const items = extractItems(raw) as any[];
       const filtered = items.filter(
@@ -198,7 +195,6 @@ export function PluginActionForm({
         if (formData[parentField]) {
           fetchOptions(name, schema, formData);
         } else {
-          // Clear dependent field and its options when parent is cleared
           setDynamicOptions((prev) => ({ ...prev, [name]: [] }));
           setFormData((prev) => { const next = { ...prev }; delete next[name]; return next; });
         }
